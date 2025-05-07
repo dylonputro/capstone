@@ -3,5 +3,5 @@ numpy
 joblib
 torch
 streamlit
-matplotlib
+plotly
 prepro
