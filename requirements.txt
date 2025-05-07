@@ -1,5 +1,7 @@
 joblib
 
+langchain_community
+
 langchain
 
 numpy
