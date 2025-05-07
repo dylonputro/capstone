@@ -3,6 +3,5 @@ numpy
 joblib
 torch
 streamlit
-plotly.express
-plotly.graph_objects
+matplotlib
 prepro
