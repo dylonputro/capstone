@@ -1,7 +1,21 @@
+# Core libraries
 pandas
 numpy
 joblib
 torch
+
+# Visualization
 streamlit
 plotly
-prepro
+
+# Forecasting
+prophet
+
+# Clustering & preprocessing
+scikit-learn
+
+# Transformers & NLP
+transformers
+langchain
+
+
