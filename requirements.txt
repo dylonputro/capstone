@@ -1,20 +1,19 @@
-# Core libraries
-pandas==1.5.3
-numpy==1.23.5
-joblib==1.2.0
-torch==2.0.1
+joblib
 
-# Visualization
-streamlit==1.32.0
-plotly==5.14.1
+langchain
 
-# Forecasting
-prophet==1.1.5
-pystan==2.19.1.1
+numpy
 
-# Clustering & preprocessing
-scikit-learn==1.2.2
+pandas
 
-# Transformers & NLP
-transformers==4.28.1
-langchain==0.0.208
+plotly
+
+prophet
+
+scikit-learn
+
+streamlit
+
+torch
+
+transformers
