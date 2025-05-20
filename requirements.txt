@@ -21,3 +21,5 @@ torch
 transformers
 
 prepro
+
+ollama
