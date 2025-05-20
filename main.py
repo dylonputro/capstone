@@ -144,4 +144,33 @@ elif st.session_state.page == "Dashboard":
         with col21:
             top_5 = groupByProduct.nlargest(8, "Jumlah_produk")
             other_total = groupByProduct.loc[~groupByProduct["Nama Produk"].isin(top_5["Nama Produk"]), "Jumlah_produk"].sum()
-            other_row = pd.DataFrame([
+                        other_row = pd.DataFrame([{
+                "Nama Produk": "Other",
+                "Jumlah_produk": other_total
+            }])
+            top_5 = pd.concat([top_5, other_row])
+            fig = px.pie(top_5, names="Nama Produk", values="Jumlah_produk", title="Top Produk Terbanyak")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col22:
+            top_kategori = groupByKategori.nlargest(8, "Total_omset")
+            fig = px.bar(top_kategori, x="Kategori", y="Total_omset", title="Total Omzet per Kategori Produk")
+            st.plotly_chart(fig, use_container_width=True)
+
+    with st.container():
+        st.subheader("Segmentasi Pelanggan")
+        df_segment = prepro.customer_segmentation(groupByCustomer)
+        fig = px.scatter_3d(
+            df_segment,
+            x='totSpen',
+            y='totJum',
+            z='totJenPro',
+            color='cluster',
+            title="Customer Segmentation (KMeans)"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Lihat Data Mentah"):
+        st.dataframe(st.session_state.df)
+
+
