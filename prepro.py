@@ -1,174 +1,92 @@
 import pandas as pd
-import numpy as np
-import joblib
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.preprocessing import StandardScaler
-from prophet import Prophet
-from sklearn.metrics import mean_absolute_error
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from langchain.llms import HuggingFacePipeline
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
-import torch
-from transformers import pipeline
-from transformers import AutoModelForSeq2SeqLM
 
-
-# fix the name of data
-def fix_column_name(df, names):
-    df = df.rename(columns={v: k for k, v in names.items()})
-    return df
-
+def fix_column_name(df, column_mapping):
+    """
+    Rename columns in df according to column_mapping dictionary.
+    """
+    return df.rename(columns=column_mapping)
 
 def clean_data(df):
-    df["Jumlah Produk"] = pd.to_numeric(df["Jumlah Produk"], errors="coerce")
-    df = df[df["Jumlah Produk"] >= 0]
-    df["Harga Produk"] = df["Harga Produk"].astype(str).str.replace(",", "", regex=True)
-    df["Harga Produk"] = df["Harga Produk"].str.replace(r"[^0-9.]", "", regex=True)
-    df["Harga Produk"] = pd.to_numeric(df["Harga Produk"], errors="coerce")
-    df["Tanggal & Waktu"] = df["Tanggal & Waktu"].str.replace(
-        r"(\d{2})\.(\d{2})", r"\1:\2", regex=True
-    )
-    df["Tanggal & Waktu"] = pd.to_datetime(
-        df["Tanggal & Waktu"], errors="coerce", dayfirst=False
-    )
-    df["Total_harga"] = df["Harga Produk"] * df["Jumlah Produk"]
-    df["Jam"] = df["Tanggal & Waktu"].dt.hour
-    return df
+    """
+    Bersihkan data: convert tanggal, handle missing, sorting, dan reset index.
+    """
+    # Ubah kolom tanggal ke datetime
+    df['Tanggal & Waktu'] = pd.to_datetime(df['Tanggal & Waktu'], errors='coerce')
+    # Drop row yang tanggalnya invalid atau missing
+    df = df.dropna(subset=['Tanggal & Waktu'])
+    # Isi missing numeric dengan 0
+    numeric_cols = ['Jumlah Produk', 'Harga Produk', 'nominal_transaksi'] if 'nominal_transaksi' in df.columns else ['Jumlah Produk', 'Harga Produk']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
+    # Buat kolom nominal_transaksi jika belum ada
+    if 'nominal_transaksi' not in df.columns and ('Jumlah Produk' in df.columns and 'Harga Produk' in df.columns):
+        df['nominal_transaksi'] = df['Jumlah Produk'] * df['Harga Produk']
+
+    # Urutkan berdasarkan tanggal & waktu
+    df = df.sort_values('Tanggal & Waktu').reset_index(drop=True)
+    return df
 
 def prep_sales(df):
-    dff = df.copy()
-    dff["Tanggal & Waktu"] = dff["Tanggal & Waktu"].dt.date
-    df_grouped = (
-        dff.groupby("Tanggal & Waktu", as_index=False)
-        .agg(
-            banyak_transaksi=("ID Struk", "nunique"),
-            banyak_produk=("Jumlah Produk", "sum"),
-            banyak_jenis_produk=("Nama Produk", "nunique"),
-            nominal_transaksi=("Total_harga", "sum"),
-        )
-        .reset_index()
-    )
-    return df_grouped
+    """
+    Mengelompokkan data per hari dengan agregasi pemasukan, produk, transaksi dll
+    """
+    df_daily = df.copy()
+    df_daily['Tanggal & Waktu'] = pd.to_datetime(df_daily['Tanggal & Waktu']).dt.date
 
+    agg_df = df_daily.groupby('Tanggal & Waktu').agg(
+        nominal_transaksi=('nominal_transaksi', 'sum'),
+        banyak_produk=('Jumlah Produk', 'sum'),
+        banyak_transaksi=('ID Struk', 'nunique'),
+        banyak_jenis_produk=('Nama Produk', 'nunique')
+    ).reset_index()
+
+    return agg_df
 
 def prep_customer(df):
-    df_grouped = (
-        df.groupby("ID Struk")  # Pastikan ini adalah customer ID, bukan ID transaksi
-        .agg(
-            totSpen=("Total_harga", "sum"),
-            totJum=("Jumlah Produk", "sum"),
-            totJenPro=("Nama Produk", "nunique"),
-            totKat=("Kategori", "nunique"),
-        )
-        .reset_index()
-    )
-    return df_grouped
-
+    """
+    Grouping data customer dengan beberapa ringkasan
+    """
+    df_customer = df.groupby('Nama Pelanggan').agg(
+        totSpen=('nominal_transaksi', 'sum'),
+        totJum=('Jumlah Produk', 'sum'),
+        totJenPro=('Nama Produk', 'nunique'),
+        totKat=('Kategori', 'nunique'),
+        banyak_transaksi=('ID Struk', 'nunique')
+    ).reset_index()
+    return df_customer
 
 def prep_grouphour(df):
-    df_grouped = (
-        df.groupby("Jam").agg(Jumlah_produk=("Jumlah Produk", "mean")).reset_index()
-    )
+    """
+    Membuat agregasi rata-rata produk per jam
+    """
+    df_hour = df.copy()
+    df_hour['Jam'] = pd.to_datetime(df_hour['Tanggal & Waktu']).dt.hour
+    df_grouped = df_hour.groupby('Jam').agg(Jumlah_produk=('Jumlah Produk', 'mean')).reset_index()
     return df_grouped
-
 
 def prep_groupProduct(df):
-    df_grouped = (
-        df.groupby("Nama Produk")
-        .agg(
-            Jumlah_produk=("Jumlah Produk", "sum"),
-            Total_omset=("Total_harga", "sum"),
-            Harga_Satuan=("Harga Produk", "first"),
-        )
-        .reset_index()
-    )
-    return df_grouped
-
+    """
+    Total produk per nama produk
+    """
+    df_group = df.groupby('Nama Produk').agg(Jumlah_produk=('Jumlah Produk', 'sum')).reset_index()
+    return df_group
 
 def prep_groupKategori(df):
-    df_grouped = (
-        df.groupby("Kategori")
-        .agg(
-            Jumlah_produk=("Jumlah Produk", "sum"),
-            Total_omset=("Total_harga", "sum"),
-            Harga_Satuan=("Harga Produk", "first"),
-        )
-        .reset_index()
-    )
-    return df_grouped
+    """
+    Total omzet per kategori produk
+    """
+    df_group = df.groupby('Kategori').agg(Total_omset=('nominal_transaksi', 'sum')).reset_index()
+    return df_group
 
-
-def customer_segmentation(df):
-    # Pastikan kolom yang diperlukan ada
-    required_columns = ["totSpen", "totJum", "totJenPro", "totKat"]
-    df = df[required_columns]
-
-    scaler = StandardScaler()
-    df_scaled = scaler.fit_transform(df)
-
-    # Gunakan model yang sudah di-save
-    model1 = joblib.load("Segmentasi_pembeli1.pkl")
-    model2 = joblib.load("Segmentasi_pembeli22.pkl")
-
-    labels = model1.fit_predict(df_scaled)
-    df["cluster"] = labels
-
-    # Handle outliers dengan DBSCAN
-    mask = labels == -1
-    X_outlier = df_scaled[mask]
-    label = model2.predict(X_outlier)
-    label += df["cluster"].max() + 1
-    df.loc[mask, "cluster"] = label
-
-    return df
-
-
-def predict_revenue(df, periods=30):
-    # Persiapan data untuk Prophet
-    model_df = df[["Tanggal & Waktu", "nominal_transaksi"]].rename(
-        columns={"Tanggal & Waktu": "ds", "nominal_transaksi": "y"}
-    )
-
-    # Inisialisasi model
-    model = Prophet(
-        interval_width=0.95,
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,
-    )
-
-    # Training model
-    model.fit(model_df)
-
-    # Membuat dataframe prediksi
-    future = model.make_future_dataframe(periods=periods)
-    forecast = model.predict(future)
-
-    # Evaluasi model (opsional)
-    mae = mean_absolute_error(model_df["y"], forecast["yhat"][:-periods])
-    print(f"MAE: {mae:.2f}")
-
-    return forecast, model
-
-
-def load_hf_model():
-    model_name = "google/flan-t5-large"
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(
-        model_name, torch_dtype=torch.float16, device_map="auto"
-    )
-
-    hf_pipeline = HuggingFacePipeline(
-        pipeline=pipeline(
-            "text2text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=200,
-            temperature=0.7,
-            return_text=True,  # Pastikan output berupa text
-        )
-    )
-    return hf_pipeline
+def customer_segmentation(df_customer):
+    """
+    Misal menggunakan k-means clustering sederhana untuk segmentasi
+    """
+    from sklearn.cluster import KMeans
+    features = ['totSpen', 'totJum', 'totJenPro', 'totKat']
+    df_customer_clean = df_customer.dropna(subset=features)
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    df_customer_clean['cluster'] = kmeans.fit_predict(df_customer_clean[features])
+    return df_customer_clean
