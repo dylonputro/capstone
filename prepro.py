@@ -1,4 +1,5 @@
 import pandas as pd
+from sklearn.cluster import KMeans
 
 def fix_column_name(df, column_mapping):
     """
@@ -15,7 +16,7 @@ def clean_data(df):
     # Drop row yang tanggalnya invalid atau missing
     df = df.dropna(subset=['Tanggal & Waktu'])
     # Isi missing numeric dengan 0
-    numeric_cols = ['Jumlah Produk', 'Harga Produk', 'nominal_transaksi'] if 'nominal_transaksi' in df.columns else ['Jumlah Produk', 'Harga Produk']
+    numeric_cols = ['Jumlah Produk', 'Harga Produk', 'nominal_transaksi']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -82,11 +83,10 @@ def prep_groupKategori(df):
 
 def customer_segmentation(df_customer):
     """
-    Misal menggunakan k-means clustering sederhana untuk segmentasi
+    Segmentasi pelanggan menggunakan KMeans (3 cluster)
     """
-    from sklearn.cluster import KMeans
     features = ['totSpen', 'totJum', 'totJenPro', 'totKat']
-    df_customer_clean = df_customer.dropna(subset=features)
+    df_customer_clean = df_customer.dropna(subset=features).copy()
     kmeans = KMeans(n_clusters=3, random_state=42)
     df_customer_clean['cluster'] = kmeans.fit_predict(df_customer_clean[features])
     return df_customer_clean
